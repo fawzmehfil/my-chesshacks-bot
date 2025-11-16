@@ -15,7 +15,8 @@ import torch
 TT = {}  # zobrist_key -> (depth, flag, score, best_move)
 
 INFINITY = 10_000_000
-MAX_DEPTH = 3  # bump to 4+ if it’s fast enough
+MAX_DEPTH = 20  # bump to 4+ if it’s fast enough
+MAX_TIME = 5 # seconds
 
 # TT flags
 EXACT = 0
@@ -359,11 +360,10 @@ def negamax(board: chess.Board, depth: int, alpha: float, beta: float, allow_nul
 
     return best_score
 
-
-def root_search(board: chess.Board, max_depth: int) -> Move | None:
+def root_search(board: chess.Board, max_depth: int, time_limit: float = 10.0) -> Move | None:
     """
-    Root search with iterative deepening.
-    Returns the best move found, or None if no legal moves.
+    Root search with iterative deepening and time cutoff.
+    Returns the best move found so far.
     """
 
     legal_moves = list(board.legal_moves)
@@ -373,10 +373,13 @@ def root_search(board: chess.Board, max_depth: int) -> Move | None:
     best_move = random.choice(legal_moves)
     best_score = -INFINITY
 
+    start_time = time.time()
+
     for depth in range(1, max_depth + 1):
         current_best_move = None
         current_best_score = -INFINITY
 
+        # TT move if available
         tt_hit, _, tt_move = tt_probe(board, depth, -INFINITY, INFINITY)
         ordered_moves = order_moves(board, legal_moves, tt_move)
 
@@ -384,8 +387,12 @@ def root_search(board: chess.Board, max_depth: int) -> Move | None:
         beta = INFINITY
 
         for move in ordered_moves:
+            # Time check at the root level
+            if time.time() - start_time > time_limit:
+                print(f"Time limit reached at depth {depth}")
+                return best_move  # return the last fully completed depth
+
             board.push(move)
-            # Note: we pass `depth` directly, no -1 here (quiescence at depth 0).
             score = -negamax(board, depth, -beta, -alpha, allow_null=True)
             board.pop()
 
@@ -396,6 +403,7 @@ def root_search(board: chess.Board, max_depth: int) -> Move | None:
             if score > alpha:
                 alpha = score
 
+        # Update best move only if the whole depth finished
         if current_best_move is not None:
             best_move = current_best_move
             best_score = current_best_score
@@ -420,8 +428,8 @@ def test_func(ctx: GameContext):
 
     board = ctx.board
 
-    # Search: minimax + alpha-beta + MVV-LVA + quiescence + null move pruning + CNN eval
-    best_move = root_search(board, MAX_DEPTH)
+    # Search: minimax + alpha-beta + MVV-LVA + quiescence + null move pruning + CNN eval + iterative deepening (10s limit)
+    best_move = root_search(board, MAX_DEPTH, MAX_TIME)
 
     if best_move is None or best_move not in board.legal_moves:
         legal_moves = list(board.legal_moves)
